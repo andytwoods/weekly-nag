@@ -67,6 +67,64 @@ def cmd_history(args) -> int:
     return 0
 
 
+def cmd_test(args) -> int:
+    """Show the reminder card right now, to prove GTK and the window hints work.
+
+    The daemon deliberately waits out a warm-up period after login, so there is
+    otherwise no quick way to see the card. Nothing is recorded by this.
+    """
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
+    from .core import Task, TaskState, Urgency
+    from .popup import ReminderCard
+
+    store = Store(args.db)
+    now = dt.datetime.now()
+    forced = Urgency.MUST if args.must else Urgency.PACE
+
+    tasks = store.tasks()
+    if tasks:
+        states = [
+            TaskState(
+                task=t,
+                done_this_week=len(store.credited_days(t, now)),
+                done_today=0,
+                days_left=1 if args.must else 3,
+                urgency=forced,
+            )
+            for t in tasks
+        ]
+    else:
+        demo = Task(0, "Example task", per_week=4)
+        states = [
+            TaskState(task=demo, done_this_week=2, done_today=0, days_left=2, urgency=forced)
+        ]
+
+    print(f"Showing the card ({forced.value}). Nothing will be recorded.")
+    print("Hold 'mark done' for 1.5s, or click a snooze button, to close it.")
+
+    def report(what: str):
+        def fn(*_a):
+            print(f"  -> {what}")
+            Gtk.main_quit()
+        return fn
+
+    ReminderCard(
+        states=states,
+        snoozes_today=3 if args.must else 0,
+        on_done=report("done (not recorded)"),
+        on_snooze=report("snoozed"),
+        on_not_today=report("not today"),
+        on_dismiss=report("closed (counts as a snooze)"),
+        monitor_pref=store.get("monitor", "pointer"),
+    )
+    Gtk.main()
+    return 0
+
+
 def cmd_daemon(args) -> int:
     from .daemon import main as daemon_main
 
@@ -87,6 +145,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("daemon", help="run the resident reminder daemon").set_defaults(fn=cmd_daemon)
     sub.add_parser("settings", help="open the parent settings window").set_defaults(fn=cmd_settings)
     sub.add_parser("status", help="print this week's progress").set_defaults(fn=cmd_status)
+
+    t = sub.add_parser("test", help="show the reminder card now, without recording anything")
+    t.add_argument(
+        "--must",
+        action="store_true",
+        help="show the must-do-today version: centre screen, snooze locked for 5s",
+    )
+    t.set_defaults(fn=cmd_test)
     sub.add_parser("history", help="print past weeks").set_defaults(fn=cmd_history)
 
     a = sub.add_parser("add", help="add a task")

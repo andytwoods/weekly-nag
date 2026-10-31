@@ -60,6 +60,8 @@ nag status                                   # this week at a glance
 nag done physio             # credit one from the command line
 nag history                 # past weeks
 nag settings                # GUI: tasks / this week / options
+nag test                    # show the card right now, recording nothing
+nag test --must             # ...the must-do-today version, centre screen
 ```
 
 ```
@@ -71,6 +73,10 @@ Week starting 2026-11-02 (resets Mon 04:00)
 ```
 
 `status`, `add`, `done` and `history` need no GTK, so they work fine over SSH.
+
+The daemon deliberately stays quiet for the first 20 minutes after login, so
+`nag test` is the way to check the card actually appears and behaves — it shows
+one immediately and records nothing.
 
 ## How the schedule works
 
