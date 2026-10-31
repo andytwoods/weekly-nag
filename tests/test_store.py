@@ -122,3 +122,59 @@ def test_retired_task_stops_nagging_but_keeps_its_rows():
     assert s.tasks() == []
     assert len(s.tasks(active_only=False)) == 1
     assert due_now(s, MON, MON - dt.timedelta(hours=2)) == []
+
+
+def test_days_survive_a_round_trip_through_sqlite():
+    s = fresh()
+    s.add_task("Rubbish", 1, days="sat,sun")
+    task = s.tasks()[0]
+    assert task.days == frozenset({5, 6})
+    assert task.days_label == "sat,sun"
+
+
+def test_store_refuses_a_quota_that_cannot_fit_its_days():
+    s = fresh()
+    try:
+        s.add_task("Nope", 3, days="sun")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")
+    assert s.tasks() == []          # nothing was written
+
+
+def test_set_days_can_clear_the_restriction():
+    s = fresh()
+    s.add_task("Rubbish", 1, days="sat,sun")
+    task = s.tasks()[0]
+    s.set_days(task.id, None)
+    assert s.tasks()[0].days is None
+
+
+def test_weekend_task_does_not_nag_midweek():
+    s = fresh()
+    s.add_task("Rubbish", 1, days="sat,sun")
+    wed = dt.datetime(2026, 11, 4, 18, 0)
+    assert due_now(s, wed, wed - dt.timedelta(hours=2)) == []
+    sat = dt.datetime(2026, 11, 7, 18, 0)
+    assert [x.task.name for x in due_now(s, sat, sat - dt.timedelta(hours=2))] == ["Rubbish"]
+
+
+def test_migration_adds_days_to_an_existing_database(tmp_path):
+    """A database created before weekday support still opens."""
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE task (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "
+        "per_week INTEGER NOT NULL, max_per_day INTEGER NOT NULL DEFAULT 1, "
+        "active INTEGER NOT NULL DEFAULT 1);"
+        "INSERT INTO task(name, per_week) VALUES ('Physio', 4);"
+    )
+    old.commit()
+    old.close()
+
+    s = Store(path)
+    assert [t.name for t in s.tasks()] == ["Physio"]
+    assert s.tasks()[0].days is None

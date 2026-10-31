@@ -9,7 +9,7 @@ import argparse
 import datetime as dt
 import sys
 
-from .core import evaluate
+from .core import Urgency, evaluate
 from .store import Store
 
 
@@ -23,18 +23,28 @@ def cmd_status(args) -> int:
     print(f"Week starting {now.date() - dt.timedelta(days=now.weekday())} (resets Mon 04:00)")
     for task in tasks:
         st = evaluate(task, store.credited_days(task, now), now)
+        when = "" if task.days is None else f"  on {task.days_label}"
+        if st.urgency is Urgency.WAITING:
+            tail = f"{st.remaining} left, next chance {task.days_label}"
+        else:
+            tail = f"{st.remaining} left over {st.days_left}d"
         print(
             f"  {task.name:<24} {st.pips():<18} "
             f"{st.done_this_week}/{task.per_week}  "
-            f"{st.remaining} left over {st.days_left}d  [{st.urgency.value}]"
+            f"{tail}  [{st.urgency.value}]{when}"
         )
     return 0
 
 
 def cmd_add(args) -> int:
     store = Store(args.db)
-    store.add_task(args.name, args.per_week, args.max_per_day)
-    print(f"Added {args.name}: {args.per_week}x/week")
+    try:
+        store.add_task(args.name, args.per_week, args.max_per_day, args.days)
+    except ValueError as exc:
+        print(f"nag: {exc}", file=sys.stderr)
+        return 1
+    on = "" if not args.days else f" on {args.days}"
+    print(f"Added {args.name}: {args.per_week}x/week{on}")
     return cmd_status(args)
 
 
@@ -83,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("name")
     a.add_argument("per_week", type=int)
     a.add_argument("--max-per-day", dest="max_per_day", type=int, default=1)
+    a.add_argument(
+        "--days",
+        default=None,
+        metavar="mon,tue,...",
+        help="restrict to certain weekdays, e.g. --days sat,sun (default: any day)",
+    )
     a.set_defaults(fn=cmd_add)
 
     d = sub.add_parser("done", help="credit a task from the command line")

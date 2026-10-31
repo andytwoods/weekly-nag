@@ -13,7 +13,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from .core import evaluate  # noqa: E402
+from .core import DAY_NAMES, Urgency, evaluate, format_days  # noqa: E402
 from .store import Store  # noqa: E402
 
 
@@ -33,6 +33,33 @@ def _ask_pin(expected: str) -> bool:
     ok = dialog.run() == Gtk.ResponseType.OK and entry.get_text() == expected
     dialog.destroy()
     return ok
+
+
+class DayPicker(Gtk.Box):
+    """Seven toggles: M T W T F S S. None lit means "any day"."""
+
+    LETTERS = ("M", "T", "W", "T", "F", "S", "S")
+
+    def __init__(self, days: frozenset[int] | None, on_change) -> None:
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        self._on_change = on_change
+        self._quiet = False
+        self._buttons = []
+        for i, letter in enumerate(self.LETTERS):
+            b = Gtk.ToggleButton(label=letter)
+            b.set_tooltip_text(DAY_NAMES[i].capitalize())
+            b.set_active(bool(days) and i in days)
+            b.connect("toggled", self._changed)
+            self._buttons.append(b)
+            self.pack_start(b, False, False, 0)
+
+    def selected(self) -> frozenset[int] | None:
+        chosen = frozenset(i for i, b in enumerate(self._buttons) if b.get_active())
+        return chosen or None          # nothing lit == no restriction
+
+    def _changed(self, *_a) -> None:
+        if not self._quiet:
+            self._on_change(self.selected())
 
 
 class SettingsWindow(Gtk.Window):
@@ -75,6 +102,14 @@ class SettingsWindow(Gtk.Window):
         add_row.pack_start(add_btn, False, False, 0)
         page.pack_start(add_row, False, False, 0)
 
+        hint = Gtk.Label(xalign=0.0)
+        hint.set_line_wrap(True)
+        hint.set_text(
+            "M T W T F S S restricts a task to certain days - leave all off for "
+            "any day. Useful for things with a real deadline, like bin night."
+        )
+        page.pack_start(hint, False, False, 0)
+
         self._reload()
         return page
 
@@ -107,6 +142,9 @@ class SettingsWindow(Gtk.Window):
             lambda w, t=task: self.store.update_task(t.id, max_per_day=int(w.get_value())),
         )
 
+        days = DayPicker(task.days, lambda sel, t=task: self._set_days(t, sel))
+        days.set_valign(Gtk.Align.CENTER)
+
         active = Gtk.Switch(active=task.active)
         active.set_valign(Gtk.Align.CENTER)
         active.connect(
@@ -119,9 +157,33 @@ class SettingsWindow(Gtk.Window):
         box.pack_start(per_week, False, False, 0)
         box.pack_start(Gtk.Label(label="max/day"), False, False, 0)
         box.pack_start(per_day, False, False, 0)
+        box.pack_start(days, False, False, 0)
         box.pack_start(active, False, False, 0)
         row.add(box)
         return row
+
+    def _set_days(self, task, selected) -> None:
+        """Reject a day change that makes the weekly target unreachable."""
+        slots = len(selected) if selected else 7
+        if task.per_week > slots * task.max_per_day:
+            self._warn(
+                f"{task.name} is {task.per_week}x a week, which will not fit on "
+                f"{format_days(selected)}. Lower the weekly number first."
+            )
+            self._reload()
+            return
+        self.store.set_days(task.id, selected)
+
+    def _warn(self, text: str) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text=text,
+        )
+        dialog.run()
+        dialog.destroy()
 
     def _add(self, *_a) -> None:
         name = self._new_name.get_text().strip()
@@ -140,10 +202,12 @@ class SettingsWindow(Gtk.Window):
         for task in self.store.tasks():
             st = evaluate(task, self.store.credited_days(task, now), now)
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            row.pack_start(Gtk.Label(label=task.name, xalign=0.0), True, True, 0)
+            label = task.name if task.days is None else f"{task.name}  ({task.days_label})"
+            row.pack_start(Gtk.Label(label=label, xalign=0.0), True, True, 0)
             row.pack_start(Gtk.Label(label=st.pips()), False, False, 0)
+            state = "waiting for its day" if st.urgency is Urgency.WAITING else st.urgency.value
             row.pack_start(
-                Gtk.Label(label=f"{st.done_this_week}/{task.per_week}  ({st.urgency.value})"),
+                Gtk.Label(label=f"{st.done_this_week}/{task.per_week}  ({state})"),
                 False, False, 0,
             )
             page.pack_start(row, False, False, 0)

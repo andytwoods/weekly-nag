@@ -12,7 +12,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from .core import Task, credited_date, week_start_date
+from .core import Task, credited_date, format_days, parse_days, week_start_date
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS task (
@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS task (
     name        TEXT    NOT NULL,
     per_week    INTEGER NOT NULL,
     max_per_day INTEGER NOT NULL DEFAULT 1,
-    active      INTEGER NOT NULL DEFAULT 1
+    active      INTEGER NOT NULL DEFAULT 1,
+    days        TEXT    NOT NULL DEFAULT ''   -- '' = any day, else 'sat,sun'
 );
 
 CREATE TABLE IF NOT EXISTS completion (
@@ -72,8 +73,15 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
+        self._migrate()
         for k, v in DEFAULT_SETTINGS.items():
             self.db.execute("INSERT OR IGNORE INTO setting(key, value) VALUES (?, ?)", (k, v))
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was first created."""
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(task)")}
+        if "days" not in have:
+            self.db.execute("ALTER TABLE task ADD COLUMN days TEXT NOT NULL DEFAULT ''")
 
     # -- settings ---------------------------------------------------------- #
 
@@ -108,19 +116,38 @@ class Store:
                 per_week=r["per_week"],
                 max_per_day=r["max_per_day"],
                 active=bool(r["active"]),
+                days=parse_days(r["days"]),
             )
             for r in self.db.execute(sql)
         ]
 
-    def add_task(self, name: str, per_week: int, max_per_day: int = 1) -> int:
+    def add_task(
+        self,
+        name: str,
+        per_week: int,
+        max_per_day: int = 1,
+        days: frozenset[int] | str | None = None,
+    ) -> int:
+        spec = days if isinstance(days, str) else format_days(days)
+        spec = "" if spec in ("", "any day") else spec
+        # Build the Task first: its __post_init__ rejects an impossible quota
+        # (e.g. 3x a week on Sundays only) before anything is written.
+        Task(0, name.strip(), int(per_week), int(max_per_day), True, parse_days(spec))
         cur = self.db.execute(
-            "INSERT INTO task(name, per_week, max_per_day) VALUES (?, ?, ?)",
-            (name.strip(), int(per_week), int(max_per_day)),
+            "INSERT INTO task(name, per_week, max_per_day, days) VALUES (?, ?, ?, ?)",
+            (name.strip(), int(per_week), int(max_per_day), spec),
         )
         return int(cur.lastrowid)
 
+    def set_days(self, task_id: int, days: frozenset[int] | None) -> None:
+        spec = format_days(days)
+        self.db.execute(
+            "UPDATE task SET days=? WHERE id=?",
+            ("" if spec == "any day" else spec, task_id),
+        )
+
     def update_task(self, task_id: int, **fields) -> None:
-        allowed = {"name", "per_week", "max_per_day", "active"}
+        allowed = {"name", "per_week", "max_per_day", "active", "days"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if not sets:
             return

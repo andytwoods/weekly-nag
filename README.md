@@ -6,6 +6,10 @@ Most reminder apps want a time: "9am on Tuesday". Some things aren't like that.
 Physio four times a week. Guitar practice twice. Feed the rabbit daily. *When*
 doesn't matter; *how many times by Sunday* does.
 
+Some things are in between — "take the bins out once a week, but it has to be
+Saturday or Sunday" — so a task can be restricted to certain weekdays and still
+be counted as a quota.
+
 `nag` keeps the count, works out how much slack is left, and puts a card on the
 screen that is **insistent but dismissible** — it comes back until the task is
 actually marked done, without ever stealing focus, going full-screen, or making
@@ -49,9 +53,10 @@ five-minute watchdog timer that restarts the daemon if it stops.
 ## Use
 
 ```bash
-nag add Physio 4            # four times a week
+nag add Physio 4                             # four times a week, any day
 nag add Guitar 2
-nag status                  # this week at a glance
+nag add "Rubbish" 1 --days sat,sun           # once a week, weekends only
+nag status                                   # this week at a glance
 nag done physio             # credit one from the command line
 nag history                 # past weeks
 nag settings                # GUI: tasks / this week / options
@@ -60,8 +65,9 @@ nag settings                # GUI: tasks / this week / options
 ```
 $ nag status
 Week starting 2026-11-02 (resets Mon 04:00)
-  Guitar          ● ○              1/2  1 left over 5d  [slack]
-  Physio          ● ● ○ ○          2/4  2 left over 5d  [pace]
+  Guitar          ● ○              1/2  1 left over 5d                   [slack]
+  Physio          ● ● ○ ○          2/4  2 left over 5d                   [pace]
+  Rubbish         ○                0/1  1 left, next chance sat,sun      [waiting]  on sat,sun
 ```
 
 `status`, `add`, `done` and `history` need no GTK, so they work fine over SSH.
@@ -77,6 +83,7 @@ the day of the week, `nag` works out how hard to push.
 | `pace` | needs most of the remaining days | returns every 90 min, at most 4 times |
 | `must` | the target dies unless it happens today | every 30 min, then 15 after three brush-offs; card moves to the centre of the screen; "Not today" withdrawn |
 | `missed` | the target is already out of reach | backs off to one honest prompt a day |
+| `waiting` | not one of this task's days | silent |
 | `today_done` / `done` | credited today / target met | silent |
 
 - The week runs **Monday 04:00 → Monday 04:00**. A 01:30 completion counts for
@@ -86,6 +93,11 @@ the day of the week, `nag` works out how hard to push.
 - **One credit per task per day** by default, so four physio sessions can't be
   crammed into Sunday evening. Raise `max/day` per task for things genuinely
   done more than once a day.
+- A task can be **restricted to certain weekdays** (`--days sat,sun`, or the
+  `M T W T F S S` toggles in the GUI). Urgency is then measured against the
+  *allowed* days left, not the calendar days left: a weekends-only task has two
+  chances left on Monday, so it stays silent all week, nudges once on Saturday,
+  and insists on Sunday. A target that cannot fit its days is refused up front.
 - Frequency ramps with urgency. **Loudness never does.** The single escalation
   is moving to the centre of the screen.
 
@@ -112,6 +124,8 @@ without reading it. Nearly every decision here is aimed at that.
   most important setting in the app.
 - **Only prompts when someone is actually there** (`xprintidle` under 60 s,
   screen unlocked), so reminders aren't spent on an empty room.
+- **Silent on days a task isn't allowed on.** Nagging about something that
+  can't usefully be done yet is how an app loses credibility.
 - **Weekly pips, no daily streak.** A streak is one bad day from being dead for
   good, which destroys the motivation it was meant to build.
 - **No surveillance, no lockouts.** Completion is self-reported. If you doubt
@@ -149,7 +163,7 @@ because user services race the X11 session and come up without `DISPLAY` or
 ## Tests
 
 ```bash
-uv run pytest        # 31 tests
+uv run pytest        # 46 tests
 ```
 
 All scheduling logic is pure and takes the clock as an argument, so the suite
@@ -159,9 +173,9 @@ runs anywhere — including macOS, with no GTK installed.
 
 - It can only remind someone **while this computer is in use**. A phone would
   cover the rest; out of scope.
-- This is a *weekly quota* model. **Don't use it for prescription medication** —
-  that needs fixed times and proper missed-dose handling, not catch-up
-  arithmetic.
+- This is a *weekly quota* model with optional weekday restrictions. It has no
+  concept of a time of day. **Don't use it for prescription medication** — that
+  needs fixed times and proper missed-dose handling, not catch-up arithmetic.
 - X11 only. Wayland has no `xprintidle` equivalent and different window hints.
 - The watchdog restarts the daemon; it doesn't stop a determined person
   disabling it. That's deliberate — an arms race is one you lose.

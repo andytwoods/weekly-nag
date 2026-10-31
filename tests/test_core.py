@@ -174,3 +174,81 @@ def test_missed_sorts_below_everything_that_can_still_be_saved():
     missed = evaluate(Task(1, "Nibbles", per_week=7), [], SAT)
     must = evaluate(Task(2, "Physio", per_week=2), [], SAT)
     assert [s.task.id for s in pending([missed, must])] == [2, 1]
+
+
+# --------------------------------------------------------------------------- #
+# Weekday restrictions -- "once a week, but on Saturday or Sunday"
+# --------------------------------------------------------------------------- #
+
+from nag.core import eligible_days_left, format_days, parse_days  # noqa: E402
+
+WEEKEND = parse_days("sat,sun")
+
+
+def test_parse_days_accepts_names_abbreviations_and_numbers():
+    assert parse_days("sat,sun") == frozenset({5, 6})
+    assert parse_days("Saturday, Sunday") == frozenset({5, 6})
+    assert parse_days("5,6") == frozenset({5, 6})
+    assert parse_days("") is None and parse_days(None) is None
+
+
+def test_parse_days_rejects_rubbish():
+    for bad in ("funday", "9", "sat,nope"):
+        with pytest.raises(ValueError):
+            parse_days(bad)
+
+
+def test_format_days_round_trips():
+    assert format_days(WEEKEND) == "sat,sun"
+    assert format_days(None) == "any day"
+
+
+def test_eligible_days_counts_only_the_allowed_ones():
+    assert eligible_days_left(MON, WEEKEND) == 2
+    assert eligible_days_left(SAT, WEEKEND) == 2
+    assert eligible_days_left(SUN, WEEKEND) == 1
+    assert eligible_days_left(MON, None) == 7
+
+
+def test_weekend_task_is_silent_on_a_weekday():
+    task = Task(1, "Rubbish", per_week=1, days=WEEKEND)
+    for day in (MON, WED):
+        st = evaluate(task, [], day)
+        assert st.urgency is Urgency.WAITING
+        assert not st.urgency.nags
+
+
+def test_weekend_task_nudges_on_saturday_and_insists_on_sunday():
+    task = Task(1, "Rubbish", per_week=1, days=WEEKEND)
+    assert evaluate(task, [], SAT).urgency is Urgency.SLACK
+    sun = evaluate(task, [], SUN)
+    assert sun.urgency is Urgency.MUST
+    assert not sun.allow_not_today and sun.centre_screen
+
+
+def test_doing_it_saturday_silences_sunday():
+    task = Task(1, "Rubbish", per_week=1, days=WEEKEND)
+    assert evaluate(task, [dt.date(2026, 11, 7)], SUN).urgency is Urgency.DONE
+
+
+def test_urgency_is_measured_against_allowed_days_not_the_calendar():
+    """Two sessions, weekends only: on Monday that is already both weekend days."""
+    task = Task(1, "Swim", per_week=2, days=WEEKEND)
+    st = evaluate(task, [], MON)
+    assert st.days_left == 2                      # not 7
+    assert st.urgency is Urgency.WAITING          # silent until Saturday
+    assert evaluate(task, [], SAT).urgency is Urgency.MUST   # both days needed
+
+
+def test_quota_that_cannot_fit_its_days_is_rejected():
+    with pytest.raises(ValueError, match="impossible on sun"):
+        Task(1, "Nope", per_week=3, days=parse_days("sun"))
+    # ...but fits once two doses a day are allowed.
+    Task(2, "Fine", per_week=3, max_per_day=2, days=parse_days("sun,sat"))
+
+
+def test_allows_and_label():
+    task = Task(1, "Rubbish", per_week=1, days=WEEKEND)
+    assert task.allows(dt.date(2026, 11, 7)) and not task.allows(dt.date(2026, 11, 4))
+    assert task.days_label == "sat,sun"
+    assert Task(2, "Any", per_week=1).days_label == "any day"
