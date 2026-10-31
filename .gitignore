@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# environments / lockfiles
+.venv/
+uv.lock
+
+# IDE
+.idea/
+.vscode/
+
+# local data (the app's database lives in ~/.local/share/nag/)
+*.db
+*.db-wal
+*.db-shm

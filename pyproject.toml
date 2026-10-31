@@ -1,0 +1,16 @@
+[project]
+name = "linuxreminder"
+version = "0.1.0"
+description = "Weekly-quota reminders with insistent-but-dismissible pop-ups, for a single Linux Mint desktop."
+# Mint 21 ships Python 3.10, Mint 22 ships 3.12 -- stay compatible with both.
+requires-python = ">=3.10"
+dependencies = []        # PyGObject comes from apt (python3-gi), never pip
+
+[project.scripts]
+nag = "nag.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
