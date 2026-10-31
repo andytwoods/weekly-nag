@@ -13,7 +13,32 @@ echo "== 1/5 apt dependencies =="
 # python3-gi + the GTK3 typelib are what PyGObject needs; pip install PyGObject
 # would try to compile against headers that are not there. xprintidle gives the
 # idle check that stops pop-ups firing into an empty room.
-sudo apt-get install -y python3 python3-gi gir1.2-gtk-3.0 xprintidle
+#
+# Mint/Cinnamon normally ships python3-gi and the GTK3 typelib already, so this
+# whole step is usually a no-op. It is deliberately non-fatal: if a package is
+# missing and sudo wants a password we cannot supply (an unattended or remote
+# install), say so and carry on rather than abandoning the install. The app runs
+# fine without xprintidle -- the idle check just fails open.
+MISSING=()
+for pkg in python3-gi gir1.2-gtk-3.0 xprintidle; do
+  dpkg -s "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
+done
+
+if [ ${#MISSING[@]} -eq 0 ]; then
+  echo "   all present, nothing to install"
+elif [ "${NAG_NO_APT:-}" = "1" ]; then
+  echo "   NAG_NO_APT=1, skipping: ${MISSING[*]}"
+elif sudo -n true 2>/dev/null; then
+  sudo apt-get install -y "${MISSING[@]}"
+else
+  echo "   !! sudo needs a password, so these were NOT installed:"
+  echo "      ${MISSING[*]}"
+  echo "      run this when convenient:  sudo apt install -y ${MISSING[*]}"
+  if printf '%s\n' "${MISSING[@]}" | grep -qE 'python3-gi|gir1.2-gtk-3.0'; then
+    echo "      (python3-gi and gir1.2-gtk-3.0 are required - the GUI will not"
+    echo "       start without them. xprintidle alone is optional.)"
+  fi
+fi
 
 echo "== 2/5 launcher =="
 mkdir -p "$BIN_DIR"

@@ -45,10 +45,16 @@ git clone https://github.com/andytwoods/weekly-nag ~/nag
 cd ~/nag && ./install.sh
 ```
 
-The installer pulls `python3-gi`, `gir1.2-gtk-3.0` and `xprintidle` from apt,
-puts a launcher in `~/.local/bin/nag`, starts the daemon at login via
-`~/.config/autostart`, adds a settings entry to the menu, and enables a
+The installer puts a launcher in `~/.local/bin/nag`, starts the daemon at login
+via `~/.config/autostart`, adds a settings entry to the menu, and enables a
 five-minute watchdog timer that restarts the daemon if it stops.
+
+Mint and Cinnamon normally ship `python3-gi` and `gir1.2-gtk-3.0` already, in
+which case **nothing needs sudo**. Anything missing is installed with apt if
+sudo is passwordless, and otherwise just reported — the install carries on
+rather than aborting. `xprintidle` is the one optional dependency; without it
+the "is anyone at the keyboard?" check simply fails open. Use `NAG_NO_APT=1
+./install.sh` to skip the apt step entirely.
 
 ## Use
 
