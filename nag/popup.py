@@ -28,7 +28,11 @@ TICK_MS = 40
 MARGIN = 24
 
 CSS = b"""
-.nag-card      { background: #1e2228; border-radius: 14px; border: 1px solid #333a44; }
+/* The window itself must be transparent, otherwise the theme's (light)
+   background shows as a square frame around the rounded card. */
+window.nag-window { background-color: transparent; }
+.nag-card      { background: #1e2228; border-radius: 14px; border: 1px solid #333a44;
+                 padding: 18px; }
 .nag-title     { color: #f2f4f7; font-size: 15px; font-weight: 700; }
 .nag-sub       { color: #9aa4b2; font-size: 11px; }
 .nag-task      { color: #e8ebf0; font-size: 13px; font-weight: 600; }
@@ -44,6 +48,20 @@ CSS = b"""
 progressbar.nag-fill trough { min-height: 3px; background: transparent; border: none; }
 progressbar.nag-fill progress { min-height: 3px; background: #a7f3c8; }
 """
+
+
+def _transparent(window: Gtk.Window) -> None:
+    """Give the window an RGBA visual so only the rounded card is drawn.
+
+    Falls back silently to an opaque window if the screen is not composited;
+    the card is still readable, just with square corners.
+    """
+    window.get_style_context().add_class("nag-window")
+    window.set_app_paintable(True)
+    screen = window.get_screen()
+    visual = screen.get_rgba_visual()
+    if visual is not None and screen.is_composited():
+        window.set_visual(visual)
 
 
 def _install_css() -> None:
@@ -138,7 +156,8 @@ class ReminderCard(Gtk.Window):
         self.set_decorated(False)
         self.set_resizable(False)
         self.stick()                      # visible on every workspace
-        self.set_default_size(380, -1)
+        self.set_default_size(440, -1)
+        _transparent(self)
         self.connect("delete-event", self._closed)
 
         self._build(states, snoozes_today)
@@ -148,7 +167,10 @@ class ReminderCard(Gtk.Window):
 
     def _build(self, states: list[TaskState], snoozes_today: int) -> None:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        outer.set_border_width(16)
+        outer.set_margin_top(6)
+        outer.set_margin_bottom(6)
+        outer.set_margin_start(6)
+        outer.set_margin_end(6)
         outer.get_style_context().add_class("nag-card")
 
         must = [s for s in states if s.centre_screen]
@@ -199,6 +221,8 @@ class ReminderCard(Gtk.Window):
 
         hint = Gtk.Label(xalign=1.0)
         hint.set_text("Closing this only snoozes it.")
+        hint.set_line_wrap(True)
+        hint.set_max_width_chars(40)
         hint.get_style_context().add_class("nag-sub")
         outer.pack_start(hint, False, False, 0)
 
@@ -292,9 +316,13 @@ class UndoToast(Gtk.Window):
         self.set_skip_taskbar_hint(True)
         self.set_decorated(False)
         self.stick()
+        _transparent(self)
 
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_border_width(12)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
         box.get_style_context().add_class("nag-card")
         label = Gtk.Label(label=text)
         label.get_style_context().add_class("nag-task")
